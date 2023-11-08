@@ -5,18 +5,24 @@ pub use combinator::*;
 #[macro_export]
 macro_rules! combinator {
 	(S) => {
-		$crate::ski::Combinator::S.rc()
+		$crate::ski::Combinator::S
 	};
 	(K) => {
-		$crate::ski::Combinator::K.rc()
+		$crate::ski::Combinator::K
 	};
 	($x:ident) => {
-		$x
-	};
-	(($a:tt $b:tt)) => {
-		combinator!($a).on(&combinator!($b))
+		$x.rc()
 	};
 	($a:tt $b:tt) => {
-		combinator!($a).on(&combinator!($b))
+		combinator!($a).rc().on(&combinator!($b).rc())
+	};
+	(($a:tt $b:tt)) => {
+		combinator!($a).rc().on(&combinator!($b).rc())
+	};
+	($a:tt $b:tt $($r:tt)+) => {
+		combinator!( ($a $b) $($r)+ )
+	};
+	(($a:tt $b:tt $($r:tt)+)) => {
+		combinator!( ($a $b) $($r)+ )
 	};
 }

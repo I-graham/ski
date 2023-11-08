@@ -1,11 +1,13 @@
 use std::fmt::Display;
 use std::sync::{Arc, OnceLock};
 
-#[derive(Clone, PartialEq, Eq)]
+use crate::combinator;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Combinator {
 	S,
 	K,
-	A(Arc<Combinator>, Arc<Combinator>),
+	On(Arc<Combinator>, Arc<Combinator>),
 }
 
 impl Combinator {
@@ -20,34 +22,38 @@ impl Combinator {
 		}
 	}
 
-	pub fn reduce(self: &Arc<Self>) -> Arc<Self> {
-		let Self::A(ref cx, ref y) = **self else {
-			return self.clone();
+	pub fn reduce(self: &Arc<Self>) -> Option<Arc<Self>> {
+		let Self::On(a, z) = &**self else {
+			return None;
 		};
 
-		let Self::A(ref c, ref x) = **cx else {
-			return self.clone();
+		if let Some(red) = a.reduce() {
+			return Some(red.on(z).rc());
+		}
+
+		if let Some(red) = a.reduce() {
+			return Some(red.on(z).rc());
+		}
+
+		let Self::On(cx, y) = &**a else {
+			return None;
 		};
 
-		match &**c {
-			Self::K => x.rc(),
-			Self::A(ref s, ref z) if **s == Self::S => {
-				let func = z.on(y);
-				let arg = x.on(y);
-				func.on(&arg).rc()
-			}
-			_ => self.clone(),
+		match &**cx {
+			Self::K => Some(y.clone()),
+			Self::On(s, x) if **s == Self::S => Some(combinator!(x z (y z)).rc()),
+			_ => None,
 		}
 	}
 
-	pub fn on(self: &Arc<Self>, x: &Arc<Combinator>) -> Arc<Combinator> {
-		Self::A(self.clone(), x.clone()).rc()
+	pub fn on(self: &Arc<Self>, x: &Arc<Combinator>) -> Combinator {
+		Self::On(self.clone(), x.clone())
 	}
 
 	pub fn size(self: &Arc<Self>) -> usize {
 		match &**self {
 			Self::K | Self::S => 1,
-			Self::A(f, x) => f.size() + x.size(),
+			Self::On(f, x) => f.size() + x.size(),
 		}
 	}
 }
@@ -57,7 +63,7 @@ impl Display for Combinator {
 		match self {
 			Self::S => write!(fmt, "S"),
 			Self::K => write!(fmt, "K"),
-			Self::A(f, x) => {
+			Self::On(f, x) => {
 				write!(fmt, "{}", f)?;
 
 				if x.size() > 1 {
