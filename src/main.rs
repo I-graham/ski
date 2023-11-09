@@ -1,15 +1,24 @@
+use ski::Combinator;
+
 pub mod ski;
 
+#[allow(non_snake_case)]
 fn main() {
-	let lambda = combinator!(S K K S);
-	let mut lambda = combinator!(lambda K K);
-	loop {
-		println!("{}", lambda);
+	let I = combinator! (S K K);
+	let T = combinator! (K);
+	let F = combinator! (K I);
 
-		if let Some(lambda2) = lambda.rc().reduce() {
-			lambda = (*lambda2).clone();
-		} else {
-			break;
-		}
+	fully_reduce(combinator!(T 't' 'f'));
+	fully_reduce(combinator!(F 't' 'f'));
+
+	
+}
+
+fn fully_reduce(mut lambda: Combinator) {
+	while let Some(red) = lambda.reduced() {
+		println!("{}", lambda);
+		lambda = red;
 	}
+	println!("{}", lambda);
+	println!();
 }

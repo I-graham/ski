@@ -10,19 +10,24 @@ macro_rules! combinator {
 	(K) => {
 		$crate::ski::Combinator::K
 	};
+	($x:literal) => {
+		$crate::ski::Combinator::Var($x)
+	};
 	($x:ident) => {
-		$x.rc()
+		$x.clone()
 	};
-	($a:tt $b:tt) => {
-		combinator!($a).rc().on(&combinator!($b).rc())
+	(($($r:tt)+)) => {
+		$crate::ski::Combinator::App(
+			vec![
+				$(combinator!($r),)+
+				]
+			)
 	};
-	(($a:tt $b:tt)) => {
-		combinator!($a).rc().on(&combinator!($b).rc())
-	};
-	($a:tt $b:tt $($r:tt)+) => {
-		combinator!( ($a $b) $($r)+ )
-	};
-	(($a:tt $b:tt $($r:tt)+)) => {
-		combinator!( ($a $b) $($r)+ )
+	($($r:tt)+) => {
+		$crate::ski::Combinator::App(
+			vec![
+				$(combinator!($r),)+
+				]
+			)
 	};
 }
