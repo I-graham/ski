@@ -17,17 +17,9 @@ macro_rules! combinator {
 		$x.clone()
 	};
 	(($($r:tt)+)) => {
-		$crate::ski::Combinator::App(
-			vec![
-				$(combinator!($r),)+
-				]
-			)
+		combinator!($($r)+)
 	};
 	($($r:tt)+) => {
-		$crate::ski::Combinator::App(
-			vec![
-				$(combinator!($r),)+
-				]
-			)
+		$crate::ski::Combinator::App(vec![$(combinator!($r),)+])
 	};
 }

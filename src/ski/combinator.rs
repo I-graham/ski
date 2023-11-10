@@ -33,6 +33,7 @@ impl Combinator {
 		}
 	}
 
+	//reduce all Ks, since K is strongly reducing
 	pub fn k_reduced(&self) -> Self {
 		match self {
 			Self::App(args) => match &args[..] {
