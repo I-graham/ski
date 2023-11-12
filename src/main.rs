@@ -23,14 +23,19 @@ fn main() {
 
 	fully_reduce(&combinator!(I I));
 
-	let N = combinator!(T T T I I);
+	let B = combinator!(S (K S) K);
+	let C = combinator!(S (B K S) (K K));
+	let Y = combinator!(B M (C B M));
 
 	normalized(&I);
 	normalized(&T);
 	normalized(&F);
 	normalized(&M);
 	normalized(&O);
-	normalized(&N);
+	normalized(&Y);
+	normalized(&combinator!(Y F));
+
+	print_bcl(&M);
 }
 
 fn normalized(term: &Combinator) {
