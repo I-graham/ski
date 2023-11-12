@@ -4,6 +4,13 @@ pub mod cl_macro;
 pub use bitwriter::BitWriter;
 pub use cl_macro::*;
 
+use std::collections::*;
+use std::rc::*;
+
+//Type used for cache during normalization
+//TODO: Benchmark against BTree
+type Normals = HashMap<Vec<u8>, Option<Rc<Combinator>>>;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Combinator {
 	S,
@@ -16,6 +23,77 @@ pub enum Combinator {
 }
 
 impl Combinator {
+	pub fn normal_form(&self, limit: usize) -> Option<Self> {
+		let mut copy = self.clone();
+
+		if copy.normalize(limit, &mut Default::default()) {
+			Some(copy)
+		} else {
+			None
+		}
+	}
+
+	fn normalize(&mut self, limit: usize, cache: &mut Normals) -> bool {
+		if limit == 0 {
+			return false;
+		}
+
+		let bcl = self.bcl();
+
+		if let Some(found) = cache.get(&bcl) {
+			return match found {
+				Some(term) => {
+					*self = term.as_ref().clone();
+					true
+				}
+				None => false,
+			};
+		}
+
+		self.k_reduce();
+		let normalized = match self {
+			Self::S | Self::K | Self::Var(_) => true,
+			Self::Named(_, term) => term.normalize(limit - 1, cache),
+			Self::App(terms) => match &mut terms[..] {
+				[.., z, _y, _x, Self::S] => {
+					z.normalize(limit - 1, cache);
+					if self.reduce() {
+						self.normalize(limit - 1, cache)
+					} else {
+						self.is_normal()
+					}
+				}
+				[.., Self::App(_)] | [.., Self::Named(_, _)] => {
+					self.reduce();
+					self.normalize(limit - 1, cache)
+				}
+				_ => terms.iter().all(|term| term.is_normal()),
+			},
+		};
+
+		if normalized {
+			cache.insert(bcl, Some(Rc::new(self.clone())));
+		} else {
+			cache.insert(bcl, None);
+		}
+
+		normalized
+	}
+
+	pub fn is_normal(&self) -> bool {
+		match self {
+			Self::S | Self::K | Self::Var(_) => true,
+			Self::Named(_, term) => term.is_normal(),
+			Self::App(terms) => match &terms[..] {
+				[.., _, _, _, Self::S]
+				| [.., _, _, Self::K]
+				| [.., Self::App(_)]
+				| [.., Self::Named(_, _)] => false,
+				_ => terms.iter().all(|term| term.is_normal()),
+			},
+		}
+	}
+
 	pub fn reduce(&mut self) -> bool {
 		match self {
 			Self::App(args) => match &args[..] {
@@ -147,7 +225,7 @@ impl Combinator {
 			}
 			Self::App(terms) => {
 				//1 <term> <term>
-				for _ in 0..terms.len()-1 {
+				for _ in 0..terms.len() - 1 {
 					writer.emit_bit(true);
 				}
 				for term in terms.iter().rev() {

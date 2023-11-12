@@ -8,9 +8,9 @@ fn main() {
 	let T = combinator!(K);
 	let F = combinator! (K I);
 
-	fully_reduce(combinator!(T 't' 'f'));
-	fully_reduce(combinator!(F 't' 'f'));
-	fully_reduce(combinator!(I 'x'));
+	fully_reduce(&combinator!(T 't' 'f'));
+	fully_reduce(&combinator!(F 't' 'f'));
+	fully_reduce(&combinator!(I 'x'));
 
 	/* 	let never = combinator!(S S S (S S) S S);
 
@@ -19,11 +19,27 @@ fn main() {
 	let M = combinator!(S I I);
 	let O = combinator!(M M);
 
-	fully_reduce(O);
+	fully_reduce(&O);
 
-	fully_reduce(combinator!(I I));
-	print_bcl(&combinator!(I I));
+	fully_reduce(&combinator!(I I));
 
+	let N = combinator!(T T T I I);
+
+	normalized(&I);
+	normalized(&T);
+	normalized(&F);
+	normalized(&M);
+	normalized(&O);
+	normalized(&N);
+}
+
+fn normalized(term: &Combinator) {
+	print!("{} -> ", &term);
+	let normal = term.normal_form(1000);
+	match normal {
+		Some(nf) => println!("{}", nf),
+		None => println!("No NF found."),
+	}
 }
 
 fn print_bcl(term: &Combinator) {
@@ -34,10 +50,12 @@ fn print_bcl(term: &Combinator) {
 	println!();
 }
 
-fn fully_reduce(mut lambda: Combinator) {
+fn fully_reduce(term: &Combinator) {
+	let mut lambda = term.clone();
 	let mut i = 0;
 	println!("{}", lambda);
-	while lambda.reduce() {
+	while !lambda.is_normal() {
+		debug_assert!(lambda.reduce());
 		i += 1;
 		println!("{}", lambda);
 		//		if i % 10000 == 0 {println!("{}: {}", i, lambda.size())}
