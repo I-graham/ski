@@ -7,10 +7,6 @@ pub use cl_macro::*;
 use std::collections::*;
 use std::rc::*;
 
-//Type used for cache during normalization
-//TODO: Benchmark against BTree
-type Normals = HashMap<Vec<u8>, Option<Rc<Combinator>>>;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Combinator {
 	S,
@@ -20,6 +16,17 @@ pub enum Combinator {
 	App(Vec<Combinator>),
 	Var(char),
 	Named(&'static str, Box<Combinator>),
+}
+
+//Type used for cache during normalization
+//TODO: Benchmark against BTree
+type Normals = HashMap<Vec<u8>, CacheCell>;
+
+#[derive(Debug)]
+enum CacheCell {
+	Normal(Rc<Combinator>),
+	Abnormal,
+	Unsure,
 }
 
 impl Combinator {
@@ -33,48 +40,84 @@ impl Combinator {
 		}
 	}
 
-	fn normalize(&mut self, limit: usize, cache: &mut Normals) -> bool {
+	fn normalize(&mut self, mut limit: usize, cache: &mut Normals) -> bool {
 		if limit == 0 {
 			return false;
 		}
 
 		let bcl = self.bcl();
 
-		if let Some(found) = cache.get(&bcl) {
-			return match found {
-				Some(term) => {
+		if let Some(cell) = cache.get_mut(&bcl) {
+			use CacheCell::*;
+			return match cell {
+				Normal(term) => {
 					*self = term.as_ref().clone();
 					true
 				}
-				None => false,
+				Abnormal => false,
+				Unsure => {
+					*cell = Abnormal;
+					false
+				}
 			};
 		}
 
-		self.k_reduce();
-		let normalized = match self {
-			Self::S | Self::K | Self::Var(_) => true,
-			Self::Named(_, term) => term.normalize(limit - 1, cache),
-			Self::App(terms) => match &mut terms[..] {
-				[.., z, _y, _x, Self::S] => {
-					z.normalize(limit - 1, cache);
-					if self.reduce() {
-						self.normalize(limit - 1, cache)
-					} else {
-						self.is_normal()
-					}
-				}
-				[.., Self::App(_)] | [.., Self::Named(_, _)] => {
+		let normalized = loop {
+			if self.is_normal() {
+				return true;
+			}
+
+			if limit == 0 {
+				break false;
+			}
+
+			match self {
+				Self::S | Self::K | Self::Var(_) => break true,
+				Self::Named(_, _) => {
 					self.reduce();
-					self.normalize(limit - 1, cache)
 				}
-				_ => terms.iter().all(|term| term.is_normal()),
-			},
+				Self::App(terms) => match &mut terms[..] {
+					[.., z, _y, _x, Self::S] => {
+						z.normalize(limit - 1, cache);
+						self.reduce();
+						limit -= 1;
+					}
+					[.., _y, _x, Self::K] => {
+						self.reduce();
+						limit -= 1;
+					}
+					[.., Self::App(_) | Self::Named(_, _)] => {
+						self.reduce();
+						limit -= 1;
+					}
+					_ => {
+						//TODO
+						break terms
+							.iter_mut()
+							.all(|term| term.normalize(limit - 1, cache))
+					}
+				},
+			}
+
+			if let Some(cell) = cache.get_mut(&self.bcl()) {
+				use CacheCell::*;
+				match cell {
+					Normal(term) => {
+						*self = (**term).clone();
+						break true;
+					}
+					Abnormal | Unsure => {
+						*cell = Abnormal;
+						break false;
+					}
+				};
+			} else {
+				cache.insert(self.bcl().clone(), CacheCell::Unsure);
+			}
 		};
 
 		if normalized {
-			cache.insert(bcl, Some(Rc::new(self.clone())));
-		} else {
-			cache.insert(bcl, None);
+			cache.insert(bcl, CacheCell::Normal(Rc::new(self.clone())));
 		}
 
 		normalized
@@ -85,6 +128,7 @@ impl Combinator {
 			Self::S | Self::K | Self::Var(_) => true,
 			Self::Named(_, term) => term.is_normal(),
 			Self::App(terms) => match &terms[..] {
+				[single] => single.is_normal(),
 				[.., _, _, _, Self::S]
 				| [.., _, _, Self::K]
 				| [.., Self::App(_)]
@@ -96,6 +140,11 @@ impl Combinator {
 
 	pub fn reduce(&mut self) -> bool {
 		match self {
+			Self::Named(_, inner) => {
+				let old_inner = std::mem::replace(inner.as_mut(), Self::S);
+				*self = old_inner;
+				true
+			}
 			Self::App(args) => match &args[..] {
 				[.., _y, _x, Self::K] => {
 					args.pop();
@@ -155,31 +204,6 @@ impl Combinator {
 				_ => false,
 			},
 			_ => false,
-		}
-	}
-
-	//reduce all Ks, since K is strongly reducing, so this can be done
-	//without worry of a misstep.
-	pub fn k_reduce(&mut self) {
-		if let Self::App(args) = self {
-			match &args[..] {
-				[.., _y, _x, Self::K] => {
-					args.pop().unwrap();
-					let x = args.pop().unwrap();
-					args.pop().unwrap();
-
-					for c in args.iter_mut() {
-						c.k_reduce();
-					}
-
-					args.push(x);
-				}
-				_ => {
-					for c in args {
-						c.k_reduce();
-					}
-				}
-			}
 		}
 	}
 

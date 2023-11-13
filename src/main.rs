@@ -22,6 +22,7 @@ fn main() {
 	fully_reduce(&O);
 
 	fully_reduce(&combinator!(I I));
+	print_bcl(&M);
 
 	let B = combinator!(S (K S) K);
 	let C = combinator!(S (B K S) (K K));
@@ -33,14 +34,15 @@ fn main() {
 	normalized(&M);
 	normalized(&O);
 	normalized(&Y);
+	normalized(&combinator!(F I));
 	normalized(&combinator!(Y F));
-
-	print_bcl(&M);
+	normalized(&combinator!(Y T));
 }
 
 fn normalized(term: &Combinator) {
-	print!("{} -> ", &term);
-	let normal = term.normal_form(1000);
+	let name = format!("{}", &term);
+	let normal = term.normal_form(1000000);
+	print!("{} -> ", name);
 	match normal {
 		Some(nf) => println!("{}", nf),
 		None => println!("No NF found."),
@@ -64,7 +66,7 @@ fn fully_reduce(term: &Combinator) {
 		i += 1;
 		println!("{}", lambda);
 		//		if i % 10000 == 0 {println!("{}: {}", i, lambda.size())}
-		if i > 20 {
+		if i > 27 {
 			break;
 		}
 	}
