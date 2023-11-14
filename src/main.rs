@@ -37,11 +37,12 @@ fn main() {
 	normalized(&combinator!(F I));
 	normalized(&combinator!(Y F));
 	normalized(&combinator!(Y T));
+	normalized(&combinator!(Y Y));
 }
 
 fn normalized(term: &Combinator) {
 	let name = format!("{}", &term);
-	let normal = term.normal_form(1000000);
+	let normal = term.normal_form(10000);
 	print!("{} -> ", name);
 	match normal {
 		Some(nf) => println!("{}", nf),

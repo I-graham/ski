@@ -89,21 +89,25 @@ impl Combinator {
 					[.., Self::App(_) | Self::Named(_, _)] => {
 						self.reduce();
 						limit -= 1;
+						continue;
 					}
 					_ => {
-						//TODO
 						break terms
 							.iter_mut()
-							.all(|term| term.normalize(limit - 1, cache))
+							.all(|term| term.normalize(limit - 1, cache));
 					}
 				},
 			}
 
-			if let Some(cell) = cache.get_mut(&self.bcl()) {
+			let new_bcl = self.bcl();
+
+			if let Some(cell) = cache.get_mut(&new_bcl) {
 				use CacheCell::*;
 				match cell {
 					Normal(term) => {
-						*self = (**term).clone();
+						let rc = term.clone();
+						*self = (*rc).clone();
+						cache.insert(bcl.clone(), CacheCell::Normal(rc));
 						break true;
 					}
 					Abnormal | Unsure => {
@@ -112,13 +116,15 @@ impl Combinator {
 					}
 				};
 			} else {
-				cache.insert(self.bcl().clone(), CacheCell::Unsure);
+				cache.insert(new_bcl, CacheCell::Unsure);
 			}
 		};
 
-		if normalized {
+		if normalized && !cache.contains_key(&bcl) {
 			cache.insert(bcl, CacheCell::Normal(Rc::new(self.clone())));
 		}
+
+		// dbg!(name, normalized);
 
 		normalized
 	}
