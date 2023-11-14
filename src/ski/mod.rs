@@ -76,6 +76,10 @@ impl Combinator {
 				}
 				Self::App(terms) => {
 					match &mut terms[..] {
+						[_] => {
+							self.reduce();
+							continue;
+						},
 						[.., z, _y, _x, Self::S] => {
 							z.normalize(limit - 1, cache);
 							limit -= 1;
