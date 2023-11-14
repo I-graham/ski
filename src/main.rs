@@ -19,33 +19,32 @@ fn main() {
 	let M = combinator!(S I I);
 	let O = combinator!(M M);
 
-	fully_reduce(&O);
-
 	fully_reduce(&combinator!(I I));
 	print_bcl(&M);
 
 	let B = combinator!(S (K S) K);
-	let C = combinator!(S (B K S) (K K));
+	let C = combinator!(S (B B S) (K K));
 	let Y = combinator!(B M (C B M));
 
 	normalized(&I);
 	normalized(&T);
 	normalized(&F);
-	normalized(&M);
+	normalized(&combinator!(I I));
 	normalized(&O);
 	normalized(&Y);
 	normalized(&combinator!(F I));
 	normalized(&combinator!(Y F));
 	normalized(&combinator!(Y T));
-	normalized(&combinator!(Y Y));
+	normalized(&combinator!(Y (K K)));
+	normalized(&combinator!(M));
 }
 
 fn normalized(term: &Combinator) {
 	let name = format!("{}", &term);
-	let normal = term.normal_form(10000);
+	let normal = term.normal_form(100000);
 	print!("{} -> ", name);
 	match normal {
-		Some(nf) => println!("{}", nf),
+		Some(nf) => println!("{}!", nf),
 		None => println!("No NF found."),
 	}
 }
@@ -62,12 +61,11 @@ fn fully_reduce(term: &Combinator) {
 	let mut lambda = term.clone();
 	let mut i = 0;
 	println!("{}", lambda);
-	while !lambda.is_normal() {
-		debug_assert!(lambda.reduce());
+	while lambda.reduce() {
 		i += 1;
 		println!("{}", lambda);
 		//		if i % 10000 == 0 {println!("{}: {}", i, lambda.size())}
-		if i > 27 {
+		if i > 100 {
 			break;
 		}
 	}

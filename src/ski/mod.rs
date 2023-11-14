@@ -45,6 +45,8 @@ impl Combinator {
 			return false;
 		}
 
+		let name = format!("{}", self);
+		//dbg!(&name);
 		let bcl = self.bcl();
 
 		if let Some(cell) = cache.get_mut(&bcl) {
@@ -63,41 +65,46 @@ impl Combinator {
 		}
 
 		let normalized = loop {
-			if self.is_normal() {
-				return true;
-			}
-
 			if limit == 0 {
 				break false;
 			}
 
 			match self {
 				Self::S | Self::K | Self::Var(_) => break true,
-				Self::Named(_, _) => {
-					self.reduce();
+				Self::Named(_, term) => {
+					break term.normalize(limit - 1, cache);
 				}
-				Self::App(terms) => match &mut terms[..] {
-					[.., z, _y, _x, Self::S] => {
-						z.normalize(limit - 1, cache);
-						self.reduce();
-						limit -= 1;
+				Self::App(terms) => {
+					match &mut terms[..] {
+						[.., z, _y, _x, Self::S] => {
+							z.normalize(limit - 1, cache);
+							limit -= 1;
+						}
+						[.., _y, _x, Self::K] => {
+							limit -= 1;
+						}
+						[.., Self::App(_) | Self::Named(_, _)] => {
+							limit -= 1;
+							self.reduce();
+							continue;
+						}
+						_ => {
+							break terms
+								.iter_mut()
+								.rev()
+								.all(|term| term.normalize(limit - 1, cache));
+						}
 					}
-					[.., _y, _x, Self::K] => {
-						self.reduce();
-						limit -= 1;
-					}
-					[.., Self::App(_) | Self::Named(_, _)] => {
-						self.reduce();
-						limit -= 1;
-						continue;
-					}
-					_ => {
-						break terms
-							.iter_mut()
-							.all(|term| term.normalize(limit - 1, cache));
-					}
-				},
+				}
 			}
+
+			if !self.reduce() {
+				//dbg!("normalized!");
+				break true;
+			}
+
+			let name = format!("{}", self);
+			//dbg!(&name);
 
 			let new_bcl = self.bcl();
 
@@ -106,7 +113,6 @@ impl Combinator {
 				match cell {
 					Normal(term) => {
 						let rc = term.clone();
-						*self = (*rc).clone();
 						cache.insert(bcl.clone(), CacheCell::Normal(rc));
 						break true;
 					}
@@ -124,24 +130,9 @@ impl Combinator {
 			cache.insert(bcl, CacheCell::Normal(Rc::new(self.clone())));
 		}
 
-		// dbg!(name, normalized);
+		//dbg!(&name, normalized);
 
 		normalized
-	}
-
-	pub fn is_normal(&self) -> bool {
-		match self {
-			Self::S | Self::K | Self::Var(_) => true,
-			Self::Named(_, term) => term.is_normal(),
-			Self::App(terms) => match &terms[..] {
-				[single] => single.is_normal(),
-				[.., _, _, _, Self::S]
-				| [.., _, _, Self::K]
-				| [.., Self::App(_)]
-				| [.., Self::Named(_, _)] => false,
-				_ => terms.iter().all(|term| term.is_normal()),
-			},
-		}
 	}
 
 	pub fn reduce(&mut self) -> bool {
@@ -151,58 +142,63 @@ impl Combinator {
 				*self = old_inner;
 				true
 			}
-			Self::App(args) => match &args[..] {
+			Self::App(terms) => match &mut terms[..] {
+				[term] => {
+					let old_t = std::mem::replace(term, Self::K);
+					*self = old_t;
+					self.reduce()
+				}
 				[.., _y, _x, Self::K] => {
-					args.pop();
-					let x = args.pop().unwrap();
-					args.pop();
+					terms.pop();
+					let x = terms.pop().unwrap();
+					terms.pop();
 
 					//For efficiency reasons, to avoid reallocation
 					//and an extra reduction step
 					if let Self::App(v) = x {
-						args.extend_from_slice(&v);
+						terms.extend_from_slice(&v);
 					} else {
-						args.push(x);
+						terms.push(x);
 					}
 					true
 				}
 				[.., _x, _g, _f, Self::S] => {
-					args.pop();
-					let mut f = args.pop().unwrap();
-					let mut g = args.pop().unwrap();
-					let x = args.pop().unwrap();
+					terms.pop();
+					let mut f = terms.pop().unwrap();
+					let mut g = terms.pop().unwrap();
+					let x = terms.pop().unwrap();
 
 					g.apply(x.clone());
-					args.push(g);
+					terms.push(g);
 
 					//For efficiency reasons, to avoid reallocation
 					//and an extra reduction step
 					f.apply(x);
 					if let Self::App(v) = f {
-						args.extend_from_slice(&v);
+						terms.extend_from_slice(&v);
 					} else {
-						args.push(f);
+						terms.push(f);
 					}
 
 					true
 				}
 				[.., Self::App(_)] => {
-					let Some(Self::App(inner)) = args.pop() else {
+					let Some(Self::App(inner)) = terms.pop() else {
 						unreachable!()
 					};
 
-					args.extend_from_slice(&inner[..]);
+					terms.extend_from_slice(&inner[..]);
 					self.reduce()
 				}
 				[.., Self::Named(_, _)] => {
-					let Some(Self::Named(_, top)) = args.pop() else {
+					let Some(Self::Named(_, top)) = terms.pop() else {
 						unreachable!()
 					};
 
 					if let Self::App(v) = *top {
-						args.extend_from_slice(&v);
+						terms.extend_from_slice(&v);
 					} else {
-						args.push(*top);
+						terms.push(*top);
 					}
 
 					true
