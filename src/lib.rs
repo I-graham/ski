@@ -43,7 +43,31 @@ impl Combinator {
 		}
 	}
 
+	//Put everything in terms of S & K
+	pub fn sk_ify(&mut self) {
+		match self {
+			Self::S | Self::K | Self::Var(_) => (),
+			Self::Named(_, def_box) => {
+				let def = std::mem::replace(def_box.as_mut(), Self::S);
+				*self = def;
+				self.sk_ify()
+			}
+			Self::App(terms) => match &terms[..] {
+				[_] | [.., Self::App(_)] => {
+					self.reduce();
+					self.sk_ify()
+				}
+				_ => {
+					for term in terms {
+						term.sk_ify()
+					}
+				}
+			},
+		}
+	}
+
 	pub fn normalize(&mut self, mut limit: usize) -> Option<bool> {
+		//self.sk_ify();
 		self.normalize_with(&mut limit, &mut Default::default())
 	}
 
@@ -57,17 +81,13 @@ impl Combinator {
 		*limit -= 1;
 
 		self.simplify_with(cache);
-		self.alias_reduce();
-
-		//let name = format!("{}", self);
-		//println!("{}:", name);
 
 		let name = format!("{}", self);
 
 		use CacheCell::*;
 		match cache.get_mut(&name) {
 			Some(cell) => {
-				let normalized = match &cell {
+				return match &cell {
 					Normal(term) => {
 						*self = term.as_ref().clone();
 						Some(true)
@@ -76,24 +96,28 @@ impl Combinator {
 						*cell = Abnormal;
 						Some(false)
 					}
-				};
-
-				//println!("{} ==> {:?}", name, normalized);
-
-				return normalized;
+				}
 			}
 			None => {
-				cache.insert(name.clone(), Unsure);
+				cache.insert(name.clone(), CacheCell::Unsure);
 			}
 		}
 
-		match self {
+		let normalizes = match self {
 			Self::S | Self::K | Self::Var(_) => Some(true),
 
-			Self::Named(_, _) => unreachable!(),
+			Self::Named(_, def) => def.normalize_with(limit, cache),
 
-			Self::App(terms) => match &mut terms[..] {
-				[] | [_] | [.., Self::App(_) | Self::Named(_, _)] => unreachable!(),
+			Self::App(terms) => match &terms[..] {
+				[] | [_] | [.., Self::App(_)] => unreachable!(),
+
+				[.., Self::Named(_, _)] => {
+					let named = terms.last_mut().unwrap();
+					named.normalize_with(limit, cache);
+
+					self.reduce();
+					self.normalize_with(limit, cache)
+				}
 
 				[_, _, _, Self::S] | [_, _, Self::K] => {
 					self.reduce();
@@ -106,23 +130,13 @@ impl Combinator {
 					let g = terms.pop().unwrap();
 					let x = terms.pop().unwrap();
 
-					let mut redex = Self::App(vec![x, g, f, Self::S]);
-					let redex_name = format!("{}", redex);
+					terms.push(Self::App(vec![x, g, f, Self::S]));
+
+					let redex = terms.last_mut().unwrap();
+
 					match redex.normalize_with(limit, cache) {
-						Some(true) => {
-							terms.push(redex.clone());
-							cache
-								.entry(redex_name)
-								.or_insert_with(|| CacheCell::Normal(Rc::new(redex)));
-							self.normalize_with(limit, cache)
-						}
-						Some(false) => {
-							terms.push(redex);
-							cache
-								.entry(redex_name)
-								.or_insert_with(|| CacheCell::Abnormal);
-							Some(false)
-						}
+						Some(true) => self.normalize_with(limit, cache),
+						Some(false) => Some(false),
 						None => None,
 					}
 				}
@@ -132,23 +146,13 @@ impl Combinator {
 					let x = terms.pop().unwrap();
 					let y = terms.pop().unwrap();
 
-					let mut redex = Self::App(vec![y, x, Self::K]);
-					let redex_name = format!("{}", redex);
+					terms.push(Self::App(vec![y, x, Self::K]));
+
+					let redex = terms.last_mut().unwrap();
+
 					match redex.normalize_with(limit, cache) {
-						Some(true) => {
-							terms.push(redex.clone());
-							cache
-								.entry(redex_name)
-								.or_insert_with(|| CacheCell::Normal(Rc::new(redex)));
-							self.normalize_with(limit, cache)
-						}
-						Some(false) => {
-							terms.push(redex);
-							cache
-								.entry(redex_name)
-								.or_insert_with(|| CacheCell::Abnormal);
-							Some(false)
-						}
+						Some(true) => self.normalize_with(limit, cache),
+						Some(false) => Some(false),
 						None => None,
 					}
 				}
@@ -160,9 +164,17 @@ impl Combinator {
 					.reduce(|acc, next| acc.zip(next).map(|(a, b)| a && b))
 					.unwrap(),
 			},
+		};
+
+		if let Some(normal) = normalizes {
+			if normal {
+				cache.insert(name, CacheCell::Normal(self.clone().into()));
+			} else {
+				cache.insert(name, CacheCell::Abnormal);
+			}
 		}
 
-		//println!("{} ==> {:?}", name, normalized);
+		normalizes
 	}
 
 	//Normalizes unnamed combinators that have already been seen

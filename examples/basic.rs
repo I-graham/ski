@@ -16,9 +16,6 @@ pub fn main() {
 	naive_reduce(&combinator!(I I));
 	print_bcl(&M);
 
-	let never = combinator!(S S S (S S) S S);
-
-	normal_form(&never);
 
 	let B = combinator!(S (K S) K);
 	let C = combinator!(S (B B S) (K K));
@@ -39,7 +36,7 @@ pub fn main() {
 
 fn normal_form(term: &Combinator) {
 	let name = format!("{}", &term);
-	let normal = term.normal_form(10000);
+	let normal = term.normal_form(1000);
 	print!("{} -> ", name);
 	match normal {
 		Ok(nf) => println!("{}!", nf),
@@ -62,5 +59,5 @@ fn naive_reduce(term: &Combinator) {
 	while lambda.reduce() {
 		println!("{}", lambda);
 	}
-	println!();
+	println!("\n");
 }
