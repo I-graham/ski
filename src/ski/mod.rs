@@ -4,7 +4,7 @@ pub mod cl_macro;
 pub use bitwriter::BitWriter;
 pub use cl_macro::*;
 
-use std::collections::*;
+use std::collections::hash_map::*;
 use std::rc::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub enum Combinator {
 
 //Type used for cache during normalization
 //TODO: Benchmark against BTree
-type Normals = HashMap<Vec<u8>, CacheCell>;
+type Cache = HashMap<Vec<u8>, CacheCell>;
 
 #[derive(Debug)]
 enum CacheCell {
@@ -30,113 +30,167 @@ enum CacheCell {
 }
 
 impl Combinator {
-	pub fn normal_form(&self, limit: usize) -> Option<Self> {
+	//Ok if normalized
+	//Err(true) means known not to normalize
+	//Err(false) if limit reached
+	pub fn normal_form(&self, limit: usize) -> Result<Self, bool> {
 		let mut copy = self.clone();
 
-		if copy.normalize(limit, &mut Default::default()) {
-			Some(copy)
-		} else {
-			None
+		match copy.normalize(limit) {
+			Some(true) => Ok(copy),
+			Some(false) => Err(true),
+			None => Err(false),
 		}
 	}
 
-	fn normalize(&mut self, mut limit: usize, cache: &mut Normals) -> bool {
-		if limit == 0 {
-			return false;
+	pub fn normalize(&mut self, mut limit: usize) -> Option<bool> {
+		self.normalize_with(&mut limit, &mut Default::default())
+	}
+
+	//Some to indicate whether it can be normalized
+	//None if unsure
+	fn normalize_with(&mut self, limit: &mut usize, cache: &mut Cache) -> Option<bool> {
+		if *limit == 0 {
+			return None;
 		}
 
-		let name = format!("{}", self);
-		//dbg!(&name);
+		self.simplify_with(cache);
+		self.alias_reduce();
 		let bcl = self.bcl();
 
-		if let Some(cell) = cache.get_mut(&bcl) {
-			use CacheCell::*;
-			return match cell {
-				Normal(term) => {
-					*self = term.as_ref().clone();
-					true
-				}
-				Abnormal => false,
-				Unsure => {
-					*cell = Abnormal;
-					false
-				}
-			};
-		}
-
-		let normalized = loop {
-			if limit == 0 {
-				break false;
-			}
-
-			match self {
-				Self::S | Self::K | Self::Var(_) => break true,
-				Self::Named(_, term) => {
-					break term.normalize(limit - 1, cache);
-				}
-				Self::App(terms) => {
-					match &mut terms[..] {
-						[_] => {
-							self.reduce();
-							continue;
-						},
-						[.., z, _y, _x, Self::S] => {
-							z.normalize(limit - 1, cache);
-							limit -= 1;
-						}
-						[.., _y, _x, Self::K] => {
-							limit -= 1;
-						}
-						[.., Self::App(_) | Self::Named(_, _)] => {
-							limit -= 1;
-							self.reduce();
-							continue;
-						}
-						_ => {
-							break terms
-								.iter_mut()
-								.rev()
-								.all(|term| term.normalize(limit - 1, cache));
-						}
-					}
-				}
-			}
-
-			if !self.reduce() {
-				//dbg!("normalized!");
-				break true;
-			}
-
-			let name = format!("{}", self);
-			//dbg!(&name);
-
-			let new_bcl = self.bcl();
-
-			if let Some(cell) = cache.get_mut(&new_bcl) {
-				use CacheCell::*;
-				match cell {
+		use CacheCell::*;
+		match cache.get_mut(&bcl) {
+			Some(cell) => {
+				return match &cell {
 					Normal(term) => {
-						let rc = term.clone();
-						cache.insert(bcl.clone(), CacheCell::Normal(rc));
-						break true;
+						*self = term.as_ref().clone();
+						Some(true)
 					}
 					Abnormal | Unsure => {
 						*cell = Abnormal;
-						break false;
+						Some(false)
 					}
 				};
-			} else {
-				cache.insert(new_bcl, CacheCell::Unsure);
 			}
+			None => {
+				cache.insert(bcl.clone(), Unsure);
+			}
+		}
+
+		let normalized = match self {
+			Self::S | Self::K | Self::Var(_) => Some(true),
+
+			Self::Named(_, _) => unreachable!(),
+
+			Self::App(terms) => match &mut terms[..] {
+				[] | [_] | [.., Self::App(_) | Self::Named(_, _)] => unreachable!(),
+
+				[_, _, _, Self::S] | [_, _, Self::K] => {
+					*limit -= 1;
+					self.reduce();
+
+					self.normalize_with(limit, cache)
+				}
+
+				[.., _x, _g, _f, Self::S] => {
+					let _s = terms.pop().unwrap();
+					let f = terms.pop().unwrap();
+					let g = terms.pop().unwrap();
+					let x = terms.pop().unwrap();
+
+					let mut redex = Self::App(vec![x, g, f, Self::S]);
+
+					match redex.normalize_with(limit, cache) {
+						Some(true) => {
+							terms.push(redex);
+							self.normalize_with(limit, cache)
+						}
+						Some(false) => {
+							terms.push(redex);
+							return Some(false);
+						}
+						None => return None,
+					}
+				}
+
+				[.., _y, _x, Self::K] => {
+					let _k = terms.pop().unwrap();
+					let x = terms.pop().unwrap();
+					let y = terms.pop().unwrap();
+
+					let mut redex = Self::App(vec![y, x, Self::K]);
+					match redex.normalize_with(limit, cache) {
+						Some(true) => {
+							terms.push(redex);
+							self.normalize_with(limit, cache)
+						}
+						Some(false) => {
+							terms.push(redex);
+							return Some(false);
+						}
+						None => return None,
+					}
+				}
+
+				_ => terms
+					.iter_mut()
+					.rev()
+					.map(|term| term.normalize_with(limit, cache))
+					.reduce(|acc, next| acc.zip(next).map(|(a, b)| a && b))
+					.unwrap(),
+			},
 		};
 
-		if normalized && !cache.contains_key(&bcl) {
+		if normalized == Some(true) {
 			cache.insert(bcl, CacheCell::Normal(Rc::new(self.clone())));
 		}
 
-		//dbg!(&name, normalized);
-
 		normalized
+	}
+
+	//Normalizes unnamed combinators that have already been seen
+	//Does not perform any reductions otherwise
+	fn simplify_with(&mut self, cache: &Cache) {
+		let bcl = self.bcl();
+		use CacheCell::Normal;
+		if let Some(Normal(simple)) = cache.get(&bcl) {
+			*self = simple.as_ref().clone();
+		};
+
+		if let Self::App(terms) = self {
+			match &mut terms[..] {
+				[_] | [.., Self::App(_)] => {
+					self.reduce();
+					self.simplify_with(cache);
+				}
+
+				_ => {
+					for term in terms.iter_mut() {
+						term.simplify_with(cache)
+					}
+				}
+			}
+		}
+	}
+
+	//Performs all 'alias reductions', i.e., reductions which don't correspond
+	//to a redex in the SK basis.
+	//Used so that two calls to reduce don't generate the same BCL if an alias is used
+	pub fn alias_reduce(&mut self) {
+		loop {
+			match self {
+				Self::S | Self::K | Self::Var(_) => break,
+				Self::Named(_, _) => {
+					self.reduce();
+				}
+				Self::App(terms) => match &mut terms[..] {
+					[_] | [.., Self::App(_) | Self::Named(_, _)] => {
+						self.reduce();
+					}
+					_ => break,
+				},
+			}
+		}
 	}
 
 	pub fn reduce(&mut self) -> bool {
@@ -147,9 +201,8 @@ impl Combinator {
 				true
 			}
 			Self::App(terms) => match &mut terms[..] {
-				[term] => {
-					let old_t = std::mem::replace(term, Self::K);
-					*self = old_t;
+				[_] => {
+					*self = terms.pop().unwrap();
 					self.reduce()
 				}
 				[.., _y, _x, Self::K] => {

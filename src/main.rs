@@ -26,26 +26,27 @@ fn main() {
 	let C = combinator!(S (B B S) (K K));
 	let Y = combinator!(B M (C B M));
 
-	normalized(&I);
-	normalized(&T);
-	normalized(&F);
-	normalized(&combinator!(I I));
-	normalized(&O);
-	normalized(&Y);
-	normalized(&combinator!(F I));
-	normalized(&combinator!(Y F));
-	normalized(&combinator!(Y T));
-	normalized(&combinator!(Y (K K)));
-	normalized(&combinator!(M));
+	normal_form(&I);
+	normal_form(&T);
+	normal_form(&F);
+	normal_form(&combinator!(I I));
+	normal_form(&Y);
+	normal_form(&combinator!(M));
+	normal_form(&combinator!(F I));
+	normal_form(&combinator!(Y F));
+	normal_form(&O);
+	normal_form(&combinator!(Y T));
+	normal_form(&combinator!(Y (K K)));
 }
 
-fn normalized(term: &Combinator) {
+fn normal_form(term: &Combinator) {
 	let name = format!("{}", &term);
-	let normal = term.normal_form(100000);
+	let normal = term.normal_form(10000);
 	print!("{} -> ", name);
 	match normal {
-		Some(nf) => println!("{}!", nf),
-		None => println!("No NF found."),
+		Ok(nf) => println!("{}!", nf),
+		Err(true) => println!("No NF exists."),
+		Err(false) => println!("No NF found."),
 	}
 }
 
