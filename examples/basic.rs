@@ -1,7 +1,5 @@
 use ski::*;
 
-pub mod ski;
-
 #[allow(non_snake_case)]
 fn main() {
 	let I = combinator!(S K K);
@@ -70,5 +68,5 @@ fn fully_reduce(term: &Combinator) {
 			break;
 		}
 	}
-	println!();
+	println!("\n");
 }
