@@ -20,7 +20,7 @@ pub enum Combinator {
 
 //Type used for cache during normalization
 //TODO: Benchmark against BTree
-type Cache = HashMap<Vec<u8>, CacheCell>;
+type Cache = HashMap<String, CacheCell>;
 
 #[derive(Debug)]
 enum CacheCell {
@@ -43,7 +43,31 @@ impl Combinator {
 		}
 	}
 
+	//Put everything in terms of S & K
+	pub fn sk_ify(&mut self) {
+		match self {
+			Self::S | Self::K | Self::Var(_) => (),
+			Self::Named(_, def_box) => {
+				let def = std::mem::replace(def_box.as_mut(), Self::S);
+				*self = def;
+				self.sk_ify()
+			}
+			Self::App(terms) => match &terms[..] {
+				[_] | [.., Self::App(_)] => {
+					self.reduce();
+					self.sk_ify()
+				}
+				_ => {
+					for term in terms {
+						term.sk_ify()
+					}
+				}
+			},
+		}
+	}
+
 	pub fn normalize(&mut self, mut limit: usize) -> Option<bool> {
+		self.sk_ify();
 		self.normalize_with(&mut limit, &mut Default::default())
 	}
 
@@ -54,12 +78,14 @@ impl Combinator {
 			return None;
 		}
 
+		*limit -= 1;
+
 		self.simplify_with(cache);
-		self.alias_reduce();
-		let bcl = self.bcl();
+
+		let name = format!("{}", self);
 
 		use CacheCell::*;
-		match cache.get_mut(&bcl) {
+		match cache.get_mut(&name) {
 			Some(cell) => {
 				return match &cell {
 					Normal(term) => {
@@ -70,25 +96,23 @@ impl Combinator {
 						*cell = Abnormal;
 						Some(false)
 					}
-				};
+				}
 			}
 			None => {
-				cache.insert(bcl.clone(), Unsure);
+				cache.insert(name.clone(), CacheCell::Unsure);
 			}
 		}
 
-		let normalized = match self {
+		let normalizes = match self {
 			Self::S | Self::K | Self::Var(_) => Some(true),
 
 			Self::Named(_, _) => unreachable!(),
 
 			Self::App(terms) => match &mut terms[..] {
-				[] | [_] | [.., Self::App(_) | Self::Named(_, _)] => unreachable!(),
+				[] | [_] | [.., Self::App(_)] => unreachable!(),
 
 				[_, _, _, Self::S] | [_, _, Self::K] => {
-					*limit -= 1;
 					self.reduce();
-
 					self.normalize_with(limit, cache)
 				}
 
@@ -100,16 +124,14 @@ impl Combinator {
 
 					let mut redex = Self::App(vec![x, g, f, Self::S]);
 
-					match redex.normalize_with(limit, cache) {
-						Some(true) => {
-							terms.push(redex);
-							self.normalize_with(limit, cache)
-						}
-						Some(false) => {
-							terms.push(redex);
-							return Some(false);
-						}
-						None => return None,
+					let normalizes = redex.normalize_with(limit, cache);
+
+					terms.push(redex.clone());
+
+					match normalizes {
+						Some(true) => self.normalize_with(limit, cache),
+						Some(false) => Some(false),
+						None => None,
 					}
 				}
 
@@ -119,16 +141,14 @@ impl Combinator {
 					let y = terms.pop().unwrap();
 
 					let mut redex = Self::App(vec![y, x, Self::K]);
-					match redex.normalize_with(limit, cache) {
-						Some(true) => {
-							terms.push(redex);
-							self.normalize_with(limit, cache)
-						}
-						Some(false) => {
-							terms.push(redex);
-							return Some(false);
-						}
-						None => return None,
+					let normalizes = redex.normalize_with(limit, cache);
+
+					terms.push(redex.clone());
+
+					match normalizes {
+						Some(true) => self.normalize_with(limit, cache),
+						Some(false) => Some(false),
+						None => None,
 					}
 				}
 
@@ -141,19 +161,23 @@ impl Combinator {
 			},
 		};
 
-		if normalized == Some(true) {
-			cache.insert(bcl, CacheCell::Normal(Rc::new(self.clone())));
+		if let Some(normal) = normalizes {
+			if normal {
+				cache.insert(name, CacheCell::Normal(self.clone().into()));
+			} else {
+				cache.insert(name, CacheCell::Abnormal);
+			}
 		}
 
-		normalized
+		normalizes
 	}
 
 	//Normalizes unnamed combinators that have already been seen
 	//Does not perform any reductions otherwise
 	fn simplify_with(&mut self, cache: &Cache) {
-		let bcl = self.bcl();
+		let name = format!("{}", self);
 		use CacheCell::Normal;
-		if let Some(Normal(simple)) = cache.get(&bcl) {
+		if let Some(Normal(simple)) = cache.get(&name) {
 			*self = simple.as_ref().clone();
 		};
 

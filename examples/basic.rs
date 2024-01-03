@@ -10,9 +10,7 @@ fn main() {
 	fully_reduce(&combinator!(F 't' 'f'));
 	fully_reduce(&combinator!(I 'x'));
 
-	/* 	let never = combinator!(S S S (S S) S S);
-
-	fully_reduce(never);  */
+	let never = combinator!(S S S (S S) S S);
 
 	let M = combinator!(S I I);
 	let O = combinator!(M M);
@@ -35,6 +33,8 @@ fn main() {
 	normal_form(&O);
 	normal_form(&combinator!(Y T));
 	normal_form(&combinator!(Y (K K)));
+	normal_form(&never); 
+
 }
 
 fn normal_form(term: &Combinator) {
