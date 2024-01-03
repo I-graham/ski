@@ -1,16 +1,16 @@
 #[macro_export]
 macro_rules! combinator {
 	(S) => {
-		$crate::ski::Combinator::S
+		$crate::Combinator::S
 	};
 	(K) => {
-		$crate::ski::Combinator::K
+		$crate::Combinator::K
 	};
 	($x:literal) => {
-		$crate::ski::Combinator::Var($x)
+		$crate::Combinator::Var($x)
 	};
 	($x:ident) => {
-		$crate::ski::Combinator::Named(&stringify!($x), Box::new($x.clone()))
+		$crate::Combinator::Named(&stringify!($x), Box::new($x.clone()))
 	};
 	(($($r:tt)*)) => {
 		combinator!($($r)*)
@@ -18,6 +18,6 @@ macro_rules! combinator {
 	($($r:tt)*) => {{
 		let mut combs = vec![$(combinator!($r)),*];
 		combs.reverse();
-		$crate::ski::Combinator::App(combs)
+		$crate::Combinator::App(combs)
 	}};
 }

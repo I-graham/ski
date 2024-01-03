@@ -1,8 +1,7 @@
-use super::*;
 use ski::*;
 
 #[allow(non_snake_case)]
-pub fn test() {
+pub fn main() {
 	let I = combinator!(S K K);
 	let T = combinator!(K);
 	let F = combinator! (K I);
