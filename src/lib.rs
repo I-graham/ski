@@ -67,7 +67,7 @@ impl Combinator {
 	}
 
 	pub fn normalize(&mut self, mut limit: usize) -> Option<bool> {
-		self.sk_ify();
+		//self.sk_ify();
 		self.normalize_with(&mut limit, &mut Default::default())
 	}
 
@@ -106,10 +106,18 @@ impl Combinator {
 		let normalizes = match self {
 			Self::S | Self::K | Self::Var(_) => Some(true),
 
-			Self::Named(_, _) => unreachable!(),
+			Self::Named(_, def) => def.normalize_with(limit, cache),
 
-			Self::App(terms) => match &mut terms[..] {
+			Self::App(terms) => match &terms[..] {
 				[] | [_] | [.., Self::App(_)] => unreachable!(),
+
+				[.., Self::Named(_, _)] => {
+					let named = terms.last_mut().unwrap();
+					named.normalize_with(limit, cache);
+
+					self.reduce();
+					self.normalize_with(limit, cache)
+				}
 
 				[_, _, _, Self::S] | [_, _, Self::K] => {
 					self.reduce();
@@ -122,13 +130,11 @@ impl Combinator {
 					let g = terms.pop().unwrap();
 					let x = terms.pop().unwrap();
 
-					let mut redex = Self::App(vec![x, g, f, Self::S]);
+					terms.push(Self::App(vec![x, g, f, Self::S]));
 
-					let normalizes = redex.normalize_with(limit, cache);
+					let redex = terms.last_mut().unwrap();
 
-					terms.push(redex.clone());
-
-					match normalizes {
+					match redex.normalize_with(limit, cache) {
 						Some(true) => self.normalize_with(limit, cache),
 						Some(false) => Some(false),
 						None => None,
@@ -140,12 +146,11 @@ impl Combinator {
 					let x = terms.pop().unwrap();
 					let y = terms.pop().unwrap();
 
-					let mut redex = Self::App(vec![y, x, Self::K]);
-					let normalizes = redex.normalize_with(limit, cache);
+					terms.push(Self::App(vec![y, x, Self::K]));
 
-					terms.push(redex.clone());
+					let redex = terms.last_mut().unwrap();
 
-					match normalizes {
+					match redex.normalize_with(limit, cache) {
 						Some(true) => self.normalize_with(limit, cache),
 						Some(false) => Some(false),
 						None => None,

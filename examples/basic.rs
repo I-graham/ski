@@ -10,8 +10,6 @@ fn main() {
 	fully_reduce(&combinator!(F 't' 'f'));
 	fully_reduce(&combinator!(I 'x'));
 
-	let never = combinator!(S S S (S S) S S);
-
 	let M = combinator!(S I I);
 	let O = combinator!(M M);
 
@@ -33,13 +31,11 @@ fn main() {
 	normal_form(&O);
 	normal_form(&combinator!(Y T));
 	normal_form(&combinator!(Y (K K)));
-	normal_form(&never); 
-
 }
 
 fn normal_form(term: &Combinator) {
 	let name = format!("{}", &term);
-	let normal = term.normal_form(10000);
+	let normal = term.normal_form(1000);
 	print!("{} -> ", name);
 	match normal {
 		Ok(nf) => println!("{}!", nf),
